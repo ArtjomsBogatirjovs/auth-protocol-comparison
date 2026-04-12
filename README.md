@@ -69,7 +69,7 @@ Pirms projekta palaišanas jābūt instalētiem:
 ### 1. Klonēt repozitoriju
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/ArtjomsBogatirjovs/auth-protocol-comparison.git
 cd auth-protocol-comparison
 ```
 
@@ -140,16 +140,6 @@ Galvenie lauki:
 * `result`
 * `duration_ms`
 * `created_at`
-
-## Nākamie attīstības soļi
-
-Tālāk plānots realizēt:
-
-* reālu **Keycloak OpenID Connect** integrāciju
-* reālu **Keycloak SAML** integrāciju
-* reālu **WebAuthn** reģistrācijas un autentifikācijas plūsmu
-* paplašinātu metriku reģistrēšanu
-* eksperimentu rezultātu eksportu analīzei
 
 ## Piezīmes
 
