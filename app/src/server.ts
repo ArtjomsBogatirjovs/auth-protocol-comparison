@@ -2,8 +2,10 @@ import express from "express";
 import session from "express-session";
 import path from "path";
 import dotenv from "dotenv";
-import { initDb } from "./db/db";
-import { getMetrics, saveMetric } from "./services/metrics-service";
+import {initDb} from "./db/db";
+import {getMetrics, getMetricsSummary} from "./services/metrics-service";
+import crypto from "crypto";
+import {getOidcConfig, getOidcRedirectUri, getOidcScopes} from "./auth/oidc";
 
 dotenv.config();
 
@@ -13,7 +15,7 @@ const PORT = Number(process.env.PORT || 3000);
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({extended: true}));
 app.use(express.json());
 
 app.use(
@@ -28,42 +30,100 @@ app.use(
     })
 );
 
+type OpenIdClient = typeof import("openid-client");
+type OidcConfiguration = import("openid-client").Configuration;
+
+let oidcClient: OpenIdClient | null = null;
+
+async function getOpenIdClient(): Promise<OpenIdClient> {
+    if (oidcClient) {
+        return oidcClient;
+    }
+
+    oidcClient = await new Function(
+        "specifier",
+        "return import(specifier)",
+    )("openid-client") as OpenIdClient;
+
+    return oidcClient;
+}
+
 app.get("/", (_req, res) => {
     res.render("home");
 });
 
 app.get("/auth/saml", async (req, res) => {
-    const startedAt = Date.now();
-
-    (req.session as any).user = "saml_test_user";
+    (req.session as any).user = process.env.SAML_TEST_USER || "saml_user";
     (req.session as any).authType = "SAML";
-
-    const durationMs = Date.now() - startedAt;
-    await saveMetric("SAML", "saml_test_user", "success", durationMs);
 
     res.redirect("/protected");
 });
 
-app.get("/auth/oidc", async (req, res) => {
-    const startedAt = Date.now();
+app.get("/auth/oidc", async (req, res, next) => {
+    try {
+        const client = await getOpenIdClient();
+        const config = await getOidcConfig();
 
-    (req.session as any).user = "oidc_test_user";
-    (req.session as any).authType = "OpenID Connect";
+        const state = crypto.randomBytes(16).toString("hex");
+        const codeVerifier = client.randomPKCECodeVerifier();
+        const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
 
-    const durationMs = Date.now() - startedAt;
-    await saveMetric("OpenID Connect", "oidc_test_user", "success", durationMs);
+        (req.session as any).oidcState = state;
+        (req.session as any).oidcCodeVerifier = codeVerifier;
 
-    res.redirect("/protected");
+        const authorizationUrl = client.buildAuthorizationUrl(config, {
+            redirect_uri: getOidcRedirectUri(),
+            scope: getOidcScopes(),
+            state,
+            code_challenge: codeChallenge,
+            code_challenge_method: "S256",
+        });
+
+        res.redirect(authorizationUrl.href);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get("/auth/oidc/callback", async (req, res, next) => {
+    try {
+        const client = await getOpenIdClient();
+        const config = await getOidcConfig();
+
+        const expectedState = (req.session as any).oidcState;
+        const codeVerifier = (req.session as any).oidcCodeVerifier;
+
+        if (!expectedState || !codeVerifier) {
+            res.status(400).send("OIDC sesijas dati nav atrasti.");
+            return;
+        }
+
+        const currentUrl = new URL(`${req.protocol}://${req.get("host")}${req.originalUrl}`);
+
+        const tokens = await client.authorizationCodeGrant(config, currentUrl, {
+            expectedState,
+            pkceCodeVerifier: codeVerifier,
+        });
+
+        const claims = tokens.claims();
+
+        (req.session as any).user = claims?.sub || "unknown_oidc_user";
+        (req.session as any).authType = "OpenID Connect";
+        (req.session as any).idToken = tokens.id_token;
+        (req.session as any).accessToken = tokens.access_token;
+
+        delete (req.session as any).oidcState;
+        delete (req.session as any).oidcCodeVerifier;
+
+        res.redirect("/protected");
+    } catch (error) {
+        next(error);
+    }
 });
 
 app.get("/auth/webauthn", async (req, res) => {
-    const startedAt = Date.now();
-
-    (req.session as any).user = "webauthn_test_user";
+    (req.session as any).user = process.env.WEBAUTHN_TEST_USER || "webauthn_user";
     (req.session as any).authType = "WebAuthn";
-
-    const durationMs = Date.now() - startedAt;
-    await saveMetric("WebAuthn", "webauthn_test_user", "success", durationMs);
 
     res.redirect("/protected");
 });
@@ -76,7 +136,7 @@ app.get("/protected", (req, res) => {
         return res.status(401).send("Nav autorizētas piekļuves");
     }
 
-    res.render("protected", { user, authType });
+    res.render("protected", {user, authType});
 });
 
 app.get("/metrics", async (_req, res) => {
@@ -88,6 +148,11 @@ app.get("/logout", (req, res) => {
     req.session.destroy(() => {
         res.redirect("/");
     });
+});
+
+app.get("/metrics/summary", async (_req, res) => {
+    const summary = await getMetricsSummary();
+    res.json(summary);
 });
 
 async function start() {

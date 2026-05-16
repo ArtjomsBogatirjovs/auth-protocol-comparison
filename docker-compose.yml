@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:18.0
@@ -10,9 +8,19 @@ services:
       POSTGRES_USER: authuser
       POSTGRES_PASSWORD: authpass
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: auth-comparison-keycloak
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
 
 volumes:
   postgres_data:
