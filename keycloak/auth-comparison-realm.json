@@ -1,0 +1,90 @@
+{
+  "realm": "auth-comparison",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "components": {
+    "org.keycloak.keys.KeyProvider": [
+      {
+        "name": "fixed-saml-rsa",
+        "providerId": "rsa",
+        "subComponents": {},
+        "config": {
+          "priority": ["100"],
+          "enabled": ["true"],
+          "active": ["true"],
+          "privateKey": ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDBO6eM6sz7Ui0J7vXxBN24prBkM5D8o/C7H7GkUOhtMwJ3/+pbPRPgCiKkhPVpXV9hJxce7C6GJt6hgOmvDMC4D3DVfpJSWzqGebdolHnVaYVZYufjxARCezjzjMJqd1FHCwziSSlRRY0tVgi9Ify+HenSnVPRtoa80KywrAYT8IIaabkiR59fmGP1OwO18bmFWxIxf505ccp3ALKhr5ao/sWpiJJsC7yfxBoN2vVzcZ5EORXutOxcA1YwBr9g4eCWcFoq1eovSERzpxcgPxs1ypBRVZ74CkrjyCiSwKlAJbVKBaGli8sc64xcP+styO9GhEStFSeYuAdDCAE544JJAgMBAAECggEAPf1lwILY9K1FrqCe/M2rVaAACX0zf6EWSumdgxHDpriNC7MpW1DKTf7iYzYWRtGCFjhEphJt0HKqzFP/Y71rHAE0GQGMbmg+68IjcSTkuu6prWXZ74tENJG0UQmwmxghFnH4laWT4DM4Wbl2fzpmixUsnHkFWUs9iVhGdj0RjBZ23g2YMGtAovTa/xhKHAT6QpAMtjHy9twcwgCRitqV2uYAzDOdPtaUW+nkqmMwDH06stV+f5ODwvXYWZ6yAxtzozkbss0k8MQM782yc6lMODqccmM1fKC7h22reMERBf7QNn0cm7h2KTq1g1N2awDHEYaU5hDB5Nv/UXufsO084wKBgQDkPVLDxy2PLa1XzY4RVRu27tH7UG0BxjZGQEsFSgsnXO1JfQJXOsOlU6c7e6YeHyB6aBgbe5+Ew9+54Na9x+1+GNQ3ldr91n6haAQ1aqqRBCWt+qyurdECLP/zBoYwfP7eF1ydlhXQgtPSvTD9osiruF4bmkXkFv+TOwytPLagWwKBgQDYvFYCokj1oUIQ1l1zls5lg35/rvcit/kCG96ECphtKRAxJbgIZleChYoBHiynQunmumd/zZ6/tto5/IKVh4ZVJkEcwbe7S7qMS74hCjCqWFSEw452fiDnvX6vGSsT2ciG2u0d1vAQ089Nw3QXaubpekT8T8x1IsJVBkirbRgpKwKBgGnRqLrOcOgOJG0uB20vyW6yITbknfWRoX5GtsGYB73TTsygoeIxg532P/XLKUST5+n4sxyi312dtu+mN8m7lPe+qT2wQ90mgoVxBWqCrtwXUSTtsPw36Eya8nwJjVOT0FLGABGsEScgUPdG8hzWSTWcgD1J9JeAtjPbz8/N81o7AoGBAMjaEGM0faSUIqNz5Pq/oNpWd55gSMq1719S8G0xXHyc91J0gA3YufRNSM0sZ3lB+31E9bFsnldQXwApz+I+y/CRGPpLU7eQwHpPnw0DYoIahYjbqWSKEnhwFbyy+EbXJoxCykdC7wrJH24TWbxx5zgrhU7FrNZItgsRXbrvyNotAoGAVrZQC4JZPLdcdPdazGO1cizkzd9MTznR40B4Dpc3BhDM+ZtPAlwZPezj+tXI4RW8v7A5KoujXsfW3wZIL8CTzkrepijErpUJxLncsR2A8NVtVTIG1UX/pJVumzC1ODHfFzOWRAo0QDdOetgjof4Azajef+yKEqnEhwxJtwEUU1o="],
+          "certificate": ["MIIDFTCCAf2gAwIBAgIUN70aOINFNK2L0mgujGlp0xYIrDAwDQYJKoZIhvcNAQELBQAwGjEYMBYGA1UEAwwPYXV0aC1jb21wYXJpc29uMB4XDTI2MDUxNzE5NTk1M1oXDTM2MDUxNDE5NTk1M1owGjEYMBYGA1UEAwwPYXV0aC1jb21wYXJpc29uMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwTunjOrM+1ItCe718QTduKawZDOQ/KPwux+xpFDobTMCd//qWz0T4AoipIT1aV1fYScXHuwuhibeoYDprwzAuA9w1X6SUls6hnm3aJR51WmFWWLn48QEQns484zCandRRwsM4kkpUUWNLVYIvSH8vh3p0p1T0baGvNCssKwGE/CCGmm5IkefX5hj9TsDtfG5hVsSMX+dOXHKdwCyoa+WqP7FqYiSbAu8n8QaDdr1c3GeRDkV7rTsXANWMAa/YOHglnBaKtXqL0hEc6cXID8bNcqQUVWe+ApK48goksCpQCW1SgWhpYvLHOuMXD/rLcjvRoRErRUnmLgHQwgBOeOCSQIDAQABo1MwUTAdBgNVHQ4EFgQU1WSsMC6jGgqDVzX+BzEZODjA17UwHwYDVR0jBBgwFoAU1WSsMC6jGgqDVzX+BzEZODjA17UwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAhKomT0X/qFvx7YEIGTjJVxkRCuDycdLyG2+VtLfGyo43/uOYaPwQoq4g/skR55Y8FPfvuOznvhVmM1pduzQGYgWCa/RHooLCMlZcd9sduRHymXCcNjju7U8wpmKBXiQCkgX9oaD9eWV2oJNqu3Q1wXz3hHKJ1LSAYUfUgN1FvkXBKHCxZazi69YQHNehE5u2usvp7VB/6Z4XKuF1RnhFTmBARbVgFJvhgwgj8HjgwnDh4oj54+Sa2tNZqJi4nspobmSFxE+FlTWdkgrfaD1pCaPc+U0aAOqqkFSAX9c7oaRJZP0J2+dIHkfMmmM55/4qxvu0IQFOzAdj5Nvto5BI6A=="]
+        }
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "auth-comparison-app-oidc",
+      "name": "Auth Comparison OIDC App",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "auth-comparison-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/auth/oidc/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      }
+    },
+    {
+      "clientId": "auth-comparison-app-saml",
+      "name": "Auth Comparison SAML App",
+      "enabled": true,
+      "protocol": "saml",
+      "redirectUris": [
+        "http://localhost:3000/auth/saml/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "saml.assertion.signature": "true",
+        "saml.client.signature": "false",
+        "saml.force.post.binding": "true",
+        "saml.server.signature": "true",
+        "saml_name_id_format": "username",
+        "saml.authnstatement": "true",
+        "saml.onetimeuse.condition": "false",
+        "saml_signature_canonicalization_method": "http://www.w3.org/2001/10/xml-exc-c14n#",
+        "saml_single_logout_service_url_post": "http://localhost:3000/logout/saml/callback",
+        "saml_single_logout_service_url_redirect": "http://localhost:3000/logout/saml/callback",
+        "saml_single_logout_service_url_soap": "http://localhost:3000/logout/saml/callback"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "email": "testuser@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

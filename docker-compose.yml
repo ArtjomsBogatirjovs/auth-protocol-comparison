@@ -15,12 +15,15 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:latest
     container_name: auth-comparison-keycloak
-    command: start-dev
+    command: start-dev --import-realm
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
     ports:
       - "8080:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import
+      - ./keycloak/certs:/opt/keycloak/certs
 
 volumes:
   postgres_data:

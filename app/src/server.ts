@@ -6,6 +6,9 @@ import {initDb} from "./db/db";
 import {getMetrics, getMetricsSummary} from "./services/metrics-service";
 import crypto from "crypto";
 import {getOidcConfig, getOidcRedirectUri, getOidcScopes} from "./auth/oidc";
+import passport from "passport";
+import bodyParser from "body-parser";
+import {createSamlStrategy} from "./auth/saml";
 
 dotenv.config();
 
@@ -30,6 +33,22 @@ app.use(
     })
 );
 
+app.use(bodyParser.urlencoded({extended: false}));
+
+const samlStrategy = createSamlStrategy();
+passport.use("saml", samlStrategy);
+
+passport.serializeUser((user, done) => {
+    done(null, user as any);
+});
+
+passport.deserializeUser((user, done) => {
+    done(null, user as any);
+});
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 type OpenIdClient = typeof import("openid-client");
 type OidcConfiguration = import("openid-client").Configuration;
 
@@ -52,12 +71,30 @@ app.get("/", (_req, res) => {
     res.render("home");
 });
 
-app.get("/auth/saml", async (req, res) => {
-    (req.session as any).user = process.env.SAML_TEST_USER || "saml_user";
-    (req.session as any).authType = "SAML";
+app.get("/auth/saml",
+    passport.authenticate("saml", {
+        failureRedirect: "/",
+    })
+);
 
-    res.redirect("/protected");
-});
+app.post(
+    "/auth/saml/callback",
+    passport.authenticate("saml", {
+        failureRedirect: "/",
+    }),
+    (req, res) => {
+        const samlUser = req.user as any;
+
+        (req.session as any).user =
+            samlUser?.email || samlUser?.nameId || samlUser?.id || "unknown_saml_user";
+
+        (req.session as any).authType = "SAML";
+        (req.session as any).samlNameId = samlUser?.nameId;
+        (req.session as any).samlSessionIndex = samlUser?.sessionIndex;
+
+        res.redirect("/protected");
+    }
+);
 
 app.get("/auth/oidc", async (req, res, next) => {
     try {
@@ -144,7 +181,62 @@ app.get("/metrics", async (_req, res) => {
     res.json(metrics);
 });
 
-app.get("/logout", (req, res) => {
+app.get("/logout", async (req, res, next) => {
+    try {
+        const authType = (req.session as any).authType;
+        const idToken = (req.session as any).idToken;
+
+        if (authType === "OpenID Connect") {
+            const config = await getOidcConfig();
+            const metadata = config.serverMetadata();
+            const endSessionEndpoint = metadata.end_session_endpoint;
+
+            const postLogoutRedirectUri =
+                process.env.OIDC_LOGOUT_REDIRECT_URI || "http://localhost:3000/";
+
+            let logoutUrl: string | null = null;
+
+            if (endSessionEndpoint) {
+                const url = new URL(endSessionEndpoint);
+
+                if (idToken) {
+                    url.searchParams.set("id_token_hint", idToken);
+                }
+
+                url.searchParams.set("post_logout_redirect_uri", postLogoutRedirectUri);
+                logoutUrl = url.href;
+            }
+
+            req.session.destroy(() => {
+                res.redirect(logoutUrl || "/");
+            });
+
+            return;
+        }
+
+        if (authType === "SAML") {
+            (samlStrategy as any).logout(req, (error: Error | null, logoutUrl?: string) => {
+                if (error) {
+                    next(error);
+                    return;
+                }
+
+                req.session.destroy(() => {
+                    res.redirect(logoutUrl || "/");
+                });
+            });
+            return;
+        }
+
+        req.session.destroy(() => {
+            res.redirect("/");
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/logout/saml/callback", (req, res) => {
     req.session.destroy(() => {
         res.redirect("/");
     });
