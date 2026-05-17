@@ -1,23 +1,45 @@
 import dotenv from "dotenv";
-import { chromium, Response } from "playwright";
+import { chromium, Browser, BrowserContext, Page, Response } from "playwright";
 import { initDb } from "../db/db";
 import { saveMetric } from "../services/metrics-service";
 
 dotenv.config();
 
+type Protocol = "OpenID Connect" | "SAML" | "WebAuthn";
+type Scenario = "S1" | "S3";
+type ExperimentResult = "success" | "failure";
+
 type ProtocolConfig = {
-    protocol: "SAML" | "OpenID Connect" | "WebAuthn";
+    protocol: Protocol;
     path: string;
+};
+
+type NetworkStats = {
+    httpRequests: number;
+    redirects: number;
+    bytesTransferred: number;
 };
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 const RUNS = Number(process.env.EXPERIMENT_RUNS || 10);
+const CONCURRENT_USERS = Number(process.env.EXPERIMENT_CONCURRENT_USERS || 10);
+
+const KEYCLOAK_USERNAME = process.env.KEYCLOAK_TEST_USERNAME || "testuser";
+const KEYCLOAK_PASSWORD = process.env.KEYCLOAK_TEST_PASSWORD || "testpass";
 
 const protocols: ProtocolConfig[] = [
-    { protocol: "SAML", path: "/auth/saml" },
     { protocol: "OpenID Connect", path: "/auth/oidc" },
+    { protocol: "SAML", path: "/auth/saml" },
     { protocol: "WebAuthn", path: "/auth/webauthn" },
 ];
+
+function createNetworkStats(): NetworkStats {
+    return {
+        httpRequests: 0,
+        redirects: 0,
+        bytesTransferred: 0,
+    };
+}
 
 async function getResponseSize(response: Response): Promise<number> {
     const contentLength = response.headers()["content-length"];
@@ -34,86 +56,300 @@ async function getResponseSize(response: Response): Promise<number> {
     }
 }
 
-async function runSingleExperiment(config: ProtocolConfig, runNumber: number): Promise<void> {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-
-    let httpRequests = 0;
-    let redirects = 0;
-    let bytesTransferred = 0;
-
+function attachNetworkMeasurement(page: Page, stats: NetworkStats): void {
     page.on("request", () => {
-        httpRequests += 1;
+        stats.httpRequests += 1;
     });
 
     page.on("response", async (response) => {
         const status = response.status();
 
         if (status >= 300 && status < 400) {
-            redirects += 1;
+            stats.redirects += 1;
         }
 
-        bytesTransferred += await getResponseSize(response);
+        stats.bytesTransferred += await getResponseSize(response);
     });
+}
+
+async function loginInKeycloakIfNeeded(page: Page): Promise<void> {
+    try {
+        await page.waitForSelector("#username", { timeout: 5000 });
+
+        await page.fill("#username", KEYCLOAK_USERNAME);
+        await page.fill("#password", KEYCLOAK_PASSWORD);
+
+        await Promise.all([
+            page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => undefined),
+            page.click("#kc-login"),
+        ]);
+    } catch {
+        // Ja Keycloak login forma nav redzama, pieņemam, ka lietotājs jau nav šajā solī.
+    }
+}
+
+async function isProtectedPage(page: Page): Promise<boolean> {
+    await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => undefined);
+    return page.url().includes("/protected");
+}
+
+async function logoutLocalSession(page: Page): Promise<void> {
+    await page.goto(`${BASE_URL}/logout`, {
+        waitUntil: "networkidle",
+        timeout: 30000,
+    }).catch(() => undefined);
+}
+
+async function runOidcOrSamlLogin(
+    browser: Browser,
+    config: ProtocolConfig,
+    scenario: Scenario,
+    runNumber: number
+): Promise<void> {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    const stats = createNetworkStats();
+    attachNetworkMeasurement(page, stats);
 
     const startedAt = Date.now();
 
     try {
         await page.goto(`${BASE_URL}${config.path}`, {
-            waitUntil: "networkidle",
+            waitUntil: "domcontentloaded",
             timeout: 30000,
         });
 
+        await loginInKeycloakIfNeeded(page);
+
+        await page.waitForURL("**/protected", {
+            timeout: 30000,
+        }).catch(() => undefined);
+
         const durationMs = Date.now() - startedAt;
-        const pageContent = await page.textContent("body");
-        const isSuccess =
-            page.url().includes("/protected") &&
-            Boolean(pageContent && pageContent.length > 0);
+        const success = await isProtectedPage(page);
 
         await saveMetric({
             protocol: config.protocol,
-            scenario: "S1",
-            userId: null,
-            result: isSuccess ? "success" : "failure",
+            scenario,
+            userId: KEYCLOAK_USERNAME,
+            result: success ? "success" : "failure",
             durationMs,
-            httpRequests,
-            redirects,
-            bytesTransferred,
-            notes: `Playwright mērījums, atkārtojums ${runNumber}`,
+            httpRequests: stats.httpRequests,
+            redirects: stats.redirects,
+            bytesTransferred: stats.bytesTransferred,
+            notes: `Automatizēts Keycloak login, atkārtojums ${runNumber}`,
         });
 
         console.log(
-            `${config.protocol} | run=${runNumber} | result=${isSuccess ? "success" : "failure"} | ` +
-            `duration=${durationMs}ms | requests=${httpRequests} | redirects=${redirects} | bytes=${bytesTransferred}`
+            `${scenario} | ${config.protocol} | run=${runNumber} | result=${
+                success ? "success" : "failure"
+            } | duration=${durationMs}ms | requests=${stats.httpRequests} | redirects=${
+                stats.redirects
+            } | bytes=${stats.bytesTransferred}`
         );
     } catch (error) {
         const durationMs = Date.now() - startedAt;
 
         await saveMetric({
             protocol: config.protocol,
-            scenario: "S1",
-            userId: null,
+            scenario,
+            userId: KEYCLOAK_USERNAME,
             result: "failure",
             durationMs,
-            httpRequests,
-            redirects,
-            bytesTransferred,
+            httpRequests: stats.httpRequests,
+            redirects: stats.redirects,
+            bytesTransferred: stats.bytesTransferred,
             notes: `Eksperimenta kļūda: ${String(error)}`,
         });
 
-        console.error(`${config.protocol} | run=${runNumber} | failure`, error);
+        console.error(`${scenario} | ${config.protocol} | run=${runNumber} | failure`, error);
     } finally {
-        await browser.close();
+        await context.close();
+    }
+}
+
+async function enableVirtualAuthenticator(context: BrowserContext, page: Page): Promise<void> {
+    const client = await context.newCDPSession(page);
+
+    await client.send("WebAuthn.enable");
+
+    await client.send("WebAuthn.addVirtualAuthenticator", {
+        options: {
+            protocol: "ctap2",
+            transport: "usb",
+            hasResidentKey: true,
+            hasUserVerification: true,
+            isUserVerified: true,
+            automaticPresenceSimulation: true,
+        },
+    });
+}
+
+async function registerWebAuthnCredential(
+    page: Page,
+    username: string
+): Promise<void> {
+    await page.goto(`${BASE_URL}/webauthn`, {
+        waitUntil: "networkidle",
+        timeout: 30000,
+    });
+
+    await page.fill("#username", username);
+
+    await Promise.all([
+        page.waitForResponse((response) =>
+            response.url().includes("/auth/webauthn/register/verify")
+        ),
+        page.click("#registerButton"),
+    ]);
+}
+
+async function runWebAuthnLogin(
+    browser: Browser,
+    scenario: Scenario,
+    runNumber: number
+): Promise<void> {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await enableVirtualAuthenticator(context, page);
+
+    const username = `webauthn_user_${scenario}_${runNumber}_${Date.now()}`;
+
+    try {
+        await registerWebAuthnCredential(page, username);
+        await logoutLocalSession(page);
+    } catch (error) {
+        await saveMetric({
+            protocol: "WebAuthn",
+            scenario,
+            userId: username,
+            result: "failure",
+            durationMs: 0,
+            httpRequests: 0,
+            redirects: 0,
+            bytesTransferred: 0,
+            notes: `WebAuthn reģistrācija neizdevās: ${String(error)}`,
+        });
+
+        await context.close();
+        return;
+    }
+
+    const stats = createNetworkStats();
+    attachNetworkMeasurement(page, stats);
+
+    const startedAt = Date.now();
+
+    try {
+        await page.goto(`${BASE_URL}/webauthn`, {
+            waitUntil: "networkidle",
+            timeout: 30000,
+        });
+
+        await page.fill("#username", username);
+
+        await Promise.all([
+            page.waitForURL("**/protected", { timeout: 30000 }).catch(() => undefined),
+            page.click("#loginButton"),
+        ]);
+
+        const durationMs = Date.now() - startedAt;
+        const success = await isProtectedPage(page);
+
+        await saveMetric({
+            protocol: "WebAuthn",
+            scenario,
+            userId: username,
+            result: success ? "success" : "failure",
+            durationMs,
+            httpRequests: stats.httpRequests,
+            redirects: stats.redirects,
+            bytesTransferred: stats.bytesTransferred,
+            notes: `WebAuthn login ar Chromium virtuālo autentifikatoru, atkārtojums ${runNumber}`,
+        });
+
+        console.log(
+            `${scenario} | WebAuthn | run=${runNumber} | result=${
+                success ? "success" : "failure"
+            } | duration=${durationMs}ms | requests=${stats.httpRequests} | redirects=${
+                stats.redirects
+            } | bytes=${stats.bytesTransferred}`
+        );
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+
+        await saveMetric({
+            protocol: "WebAuthn",
+            scenario,
+            userId: username,
+            result: "failure",
+            durationMs,
+            httpRequests: stats.httpRequests,
+            redirects: stats.redirects,
+            bytesTransferred: stats.bytesTransferred,
+            notes: `WebAuthn login kļūda: ${String(error)}`,
+        });
+
+        console.error(`${scenario} | WebAuthn | run=${runNumber} | failure`, error);
+    } finally {
+        await context.close();
+    }
+}
+
+async function runSingleProtocol(
+    browser: Browser,
+    config: ProtocolConfig,
+    scenario: Scenario,
+    runNumber: number
+): Promise<void> {
+    if (config.protocol === "WebAuthn") {
+        await runWebAuthnLogin(browser, scenario, runNumber);
+        return;
+    }
+
+    await runOidcOrSamlLogin(browser, config, scenario, runNumber);
+}
+
+async function runSequentialExperiment(browser: Browser): Promise<void> {
+    console.log(`Sāk S1 scenāriju. Atkārtojumi katram protokolam: ${RUNS}`);
+
+    for (const config of protocols) {
+        for (let i = 1; i <= RUNS; i += 1) {
+            await runSingleProtocol(browser, config, "S1", i);
+        }
+    }
+}
+
+async function runConcurrentExperiment(browser: Browser): Promise<void> {
+    console.log(
+        `Sāk S3 slodzes scenāriju. Paralēlie pieteikšanās mēģinājumi katram protokolam: ${CONCURRENT_USERS}`
+    );
+
+    for (const config of protocols) {
+        const tasks: Promise<void>[] = [];
+
+        for (let i = 1; i <= CONCURRENT_USERS; i += 1) {
+            tasks.push(runSingleProtocol(browser, config, "S3", i));
+        }
+
+        await Promise.all(tasks);
     }
 }
 
 async function main(): Promise<void> {
     await initDb();
 
-    for (const config of protocols) {
-        for (let i = 1; i <= RUNS; i += 1) {
-            await runSingleExperiment(config, i);
-        }
+    const browser = await chromium.launch({
+        headless: true,
+    });
+
+    try {
+        await runSequentialExperiment(browser);
+        await runConcurrentExperiment(browser);
+    } finally {
+        await browser.close();
     }
 
     console.log("Eksperimenta izpilde pabeigta.");

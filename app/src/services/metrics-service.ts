@@ -59,6 +59,10 @@ export async function getMetricsSummary() {
                scenario,
                COUNT(*)                         AS runs,
                ROUND(AVG(duration_ms), 2)       AS avg_duration_ms,
+               ROUND(
+                       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms)::numeric,
+                       2
+               )                                AS p95_duration_ms,
                MAX(duration_ms)                 AS max_duration_ms,
                ROUND(AVG(http_requests), 2)     AS avg_http_requests,
                ROUND(AVG(redirects), 2)         AS avg_redirects,
@@ -73,4 +77,8 @@ export async function getMetricsSummary() {
     `);
 
     return result.rows;
+}
+
+export async function clearMetrics(): Promise<void> {
+    await pool.query(`DELETE FROM auth_metrics`);
 }

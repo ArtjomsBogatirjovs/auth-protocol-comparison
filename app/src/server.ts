@@ -6,7 +6,7 @@ import passport from "passport";
 
 import { initDb } from "./db/db";
 import { samlStrategy } from "./auth/saml";
-import { getMetrics, getMetricsSummary } from "./services/metrics-service";
+import {clearMetrics, getMetrics, getMetricsSummary} from "./services/metrics-service";
 
 import indexRoutes from "./routes/index";
 import protectedRoutes from "./routes/protected";
@@ -87,6 +87,15 @@ app.get("/metrics/summary", async (_req, res, next) => {
     try {
         const summary = await getMetricsSummary();
         res.json(summary);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post("/metrics/clear", async (_req, res, next) => {
+    try {
+        await clearMetrics();
+        res.json({ cleared: true });
     } catch (error) {
         next(error);
     }
