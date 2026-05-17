@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import {Pool} from "pg";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -24,12 +24,29 @@ export async function initDb(): Promise<void> {
     });
 
     await pool.query(`
-        CREATE TABLE IF NOT EXISTS auth_metrics (
-            id SERIAL PRIMARY KEY,
-            protocol VARCHAR(50) NOT NULL,
-            scenario VARCHAR(50) NOT NULL,
-            user_id VARCHAR(255),
-            result VARCHAR(50) NOT NULL,
+        CREATE TABLE IF NOT EXISTS auth_metrics
+        (
+            id
+            SERIAL
+            PRIMARY
+            KEY,
+            protocol
+            VARCHAR
+        (
+            50
+        ) NOT NULL,
+            scenario VARCHAR
+        (
+            50
+        ) NOT NULL,
+            user_id VARCHAR
+        (
+            255
+        ),
+            result VARCHAR
+        (
+            50
+        ) NOT NULL,
             duration_ms INTEGER NOT NULL,
             http_requests INTEGER NOT NULL,
             redirects INTEGER NOT NULL,
@@ -37,5 +54,28 @@ export async function initDb(): Promise<void> {
             notes TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
-  `);
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS webauthn_credentials
+        (
+            id
+            SERIAL
+            PRIMARY
+            KEY,
+            user_id
+            VARCHAR
+        (
+            255
+        ) NOT NULL,
+            username VARCHAR
+        (
+            255
+        ) NOT NULL,
+            credential_id TEXT NOT NULL UNIQUE,
+            credential_public_key TEXT NOT NULL,
+            counter INTEGER NOT NULL DEFAULT 0,
+            transports TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+    `);
 }
