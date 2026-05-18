@@ -1,13 +1,12 @@
 import dotenv from "dotenv";
-import { chromium, Browser, BrowserContext, Page, Response } from "playwright";
-import { initDb } from "../db/db";
-import { saveMetric } from "../services/metrics-service";
+import {Browser, BrowserContext, chromium, Page, Response} from "playwright";
+import {initDb} from "../db/db";
+import {saveMetric} from "../services/metrics-service";
 
 dotenv.config();
 
 type Protocol = "OpenID Connect" | "SAML" | "WebAuthn";
-type Scenario = "S1" | "S3";
-type ExperimentResult = "success" | "failure";
+type Scenario = "S1" | "S2" | "S3";
 
 type ProtocolConfig = {
     protocol: Protocol;
@@ -28,9 +27,9 @@ const KEYCLOAK_USERNAME = process.env.KEYCLOAK_TEST_USERNAME || "testuser";
 const KEYCLOAK_PASSWORD = process.env.KEYCLOAK_TEST_PASSWORD || "testpass";
 
 const protocols: ProtocolConfig[] = [
-    { protocol: "OpenID Connect", path: "/auth/oidc" },
-    { protocol: "SAML", path: "/auth/saml" },
-    { protocol: "WebAuthn", path: "/auth/webauthn" },
+    {protocol: "OpenID Connect", path: "/auth/oidc"},
+    {protocol: "SAML", path: "/auth/saml"},
+    {protocol: "WebAuthn", path: "/auth/webauthn"},
 ];
 
 function createNetworkStats(): NetworkStats {
@@ -74,30 +73,55 @@ function attachNetworkMeasurement(page: Page, stats: NetworkStats): void {
 
 async function loginInKeycloakIfNeeded(page: Page): Promise<void> {
     try {
-        await page.waitForSelector("#username", { timeout: 5000 });
+        await page.waitForSelector("#username", {timeout: 5000});
 
         await page.fill("#username", KEYCLOAK_USERNAME);
         await page.fill("#password", KEYCLOAK_PASSWORD);
 
         await Promise.all([
-            page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => undefined),
+            page.waitForLoadState("networkidle", {timeout: 30000}).catch(() => undefined),
             page.click("#kc-login"),
         ]);
     } catch {
-        // Ja Keycloak login forma nav redzama, pieņemam, ka lietotājs jau nav šajā solī.
     }
 }
 
 async function isProtectedPage(page: Page): Promise<boolean> {
-    await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", {timeout: 30000}).catch(() => undefined);
     return page.url().includes("/protected");
 }
 
-async function logoutLocalSession(page: Page): Promise<void> {
-    await page.goto(`${BASE_URL}/logout`, {
+async function enableVirtualAuthenticator(context: BrowserContext, page: Page): Promise<void> {
+    const client = await context.newCDPSession(page);
+
+    await client.send("WebAuthn.enable");
+
+    await client.send("WebAuthn.addVirtualAuthenticator", {
+        options: {
+            protocol: "ctap2",
+            transport: "usb",
+            hasResidentKey: true,
+            hasUserVerification: true,
+            isUserVerified: true,
+            automaticPresenceSimulation: true,
+        },
+    });
+}
+
+async function registerWebAuthnCredential(page: Page, username: string): Promise<void> {
+    await page.goto(`${BASE_URL}/webauthn`, {
         waitUntil: "networkidle",
         timeout: 30000,
-    }).catch(() => undefined);
+    });
+
+    await page.fill("#username", username);
+
+    await Promise.all([
+        page.waitForResponse((response) =>
+            response.url().includes("/auth/webauthn/register/verify")
+        ),
+        page.click("#registerButton"),
+    ]);
 }
 
 async function runOidcOrSamlLogin(
@@ -142,11 +166,7 @@ async function runOidcOrSamlLogin(
         });
 
         console.log(
-            `${scenario} | ${config.protocol} | run=${runNumber} | result=${
-                success ? "success" : "failure"
-            } | duration=${durationMs}ms | requests=${stats.httpRequests} | redirects=${
-                stats.redirects
-            } | bytes=${stats.bytesTransferred}`
+            `${scenario} | ${config.protocol} | run=${runNumber} | result=${success ? "success" : "failure"} | duration=${durationMs}ms | requests=${stats.httpRequests} | redirects=${stats.redirects} | bytes=${stats.bytesTransferred}`
         );
     } catch (error) {
         const durationMs = Date.now() - startedAt;
@@ -169,42 +189,6 @@ async function runOidcOrSamlLogin(
     }
 }
 
-async function enableVirtualAuthenticator(context: BrowserContext, page: Page): Promise<void> {
-    const client = await context.newCDPSession(page);
-
-    await client.send("WebAuthn.enable");
-
-    await client.send("WebAuthn.addVirtualAuthenticator", {
-        options: {
-            protocol: "ctap2",
-            transport: "usb",
-            hasResidentKey: true,
-            hasUserVerification: true,
-            isUserVerified: true,
-            automaticPresenceSimulation: true,
-        },
-    });
-}
-
-async function registerWebAuthnCredential(
-    page: Page,
-    username: string
-): Promise<void> {
-    await page.goto(`${BASE_URL}/webauthn`, {
-        waitUntil: "networkidle",
-        timeout: 30000,
-    });
-
-    await page.fill("#username", username);
-
-    await Promise.all([
-        page.waitForResponse((response) =>
-            response.url().includes("/auth/webauthn/register/verify")
-        ),
-        page.click("#registerButton"),
-    ]);
-}
-
 async function runWebAuthnLogin(
     browser: Browser,
     scenario: Scenario,
@@ -215,11 +199,10 @@ async function runWebAuthnLogin(
 
     await enableVirtualAuthenticator(context, page);
 
-    const username = `webauthn_user_${scenario}_${runNumber}_${Date.now()}`;
+    const username = `webauthn_${scenario}_${runNumber}_${Date.now()}`;
 
     try {
         await registerWebAuthnCredential(page, username);
-        await logoutLocalSession(page);
     } catch (error) {
         await saveMetric({
             protocol: "WebAuthn",
@@ -251,7 +234,7 @@ async function runWebAuthnLogin(
         await page.fill("#username", username);
 
         await Promise.all([
-            page.waitForURL("**/protected", { timeout: 30000 }).catch(() => undefined),
+            page.waitForURL("**/protected", {timeout: 30000}).catch(() => undefined),
             page.click("#loginButton"),
         ]);
 
@@ -271,11 +254,7 @@ async function runWebAuthnLogin(
         });
 
         console.log(
-            `${scenario} | WebAuthn | run=${runNumber} | result=${
-                success ? "success" : "failure"
-            } | duration=${durationMs}ms | requests=${stats.httpRequests} | redirects=${
-                stats.redirects
-            } | bytes=${stats.bytesTransferred}`
+            `${scenario} | WebAuthn | run=${runNumber} | result=${success ? "success" : "failure"} | duration=${durationMs}ms | requests=${stats.httpRequests} | redirects=${stats.redirects} | bytes=${stats.bytesTransferred}`
         );
     } catch (error) {
         const durationMs = Date.now() - startedAt;
@@ -312,19 +291,27 @@ async function runSingleProtocol(
     await runOidcOrSamlLogin(browser, config, scenario, runNumber);
 }
 
-async function runSequentialExperiment(browser: Browser): Promise<void> {
-    console.log(`Sāk S1 scenāriju. Atkārtojumi katram protokolam: ${RUNS}`);
+async function runS1(browser: Browser): Promise<void> {
+    console.log("Sāk S1 scenāriju: viena veiksmīga autentifikācija.");
+
+    for (const config of protocols) {
+        await runSingleProtocol(browser, config, "S1", 1);
+    }
+}
+
+async function runS2(browser: Browser): Promise<void> {
+    console.log(`Sāk S2 scenāriju: ${RUNS} atkārtotas autentifikācijas.`);
 
     for (const config of protocols) {
         for (let i = 1; i <= RUNS; i += 1) {
-            await runSingleProtocol(browser, config, "S1", i);
+            await runSingleProtocol(browser, config, "S2", i);
         }
     }
 }
 
-async function runConcurrentExperiment(browser: Browser): Promise<void> {
+async function runS3(browser: Browser): Promise<void> {
     console.log(
-        `Sāk S3 slodzes scenāriju. Paralēlie pieteikšanās mēģinājumi katram protokolam: ${CONCURRENT_USERS}`
+        `Sāk S3 scenāriju: ${CONCURRENT_USERS} paralēli autentifikācijas mēģinājumi.`
     );
 
     for (const config of protocols) {
@@ -346,8 +333,9 @@ async function main(): Promise<void> {
     });
 
     try {
-        await runSequentialExperiment(browser);
-        await runConcurrentExperiment(browser);
+        await runS1(browser);
+        await runS2(browser);
+        await runS3(browser);
     } finally {
         await browser.close();
     }
